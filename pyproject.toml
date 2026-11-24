@@ -1,0 +1,15 @@
+[build-system]
+# The backend is in the repo (_build/backend.py): building it needs nothing from PyPI.
+requires = []
+build-backend = "backend"
+backend-path = ["_build"]
+
+[project]
+name = "lightweight-perc"
+version = "0.1.0"
+description = "Read a Dell PERC (MegaRAID) straight from the card, read-only, in pure Python: no perccli"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.urls]
+Source = "https://github.com/zindello/lightweight-perc"
