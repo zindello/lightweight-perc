@@ -9,6 +9,7 @@ name = "lightweight-perc"
 version = "0.1.0"
 description = "Read a Dell PERC (MegaRAID) straight from the card, read-only, in pure Python: no perccli"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 
 [project.urls]
 Source = "https://github.com/zindello/lightweight-perc"

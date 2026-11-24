@@ -203,3 +203,7 @@ on `main`.
 `lightweight_perc/__init__.py` (a test checks they match) in a pull request. Once it's merged,
 tag the merge on `main`: `git tag -a v<version> -m v<version> && git push origin v<version>`.
 Tags can't be moved or deleted.
+
+## Licence
+
+MIT; see [LICENSE](LICENSE).
