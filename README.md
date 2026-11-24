@@ -8,7 +8,8 @@ It gives you:
 - the controller's model and its chip (ROC) temperature;
 - each array (virtual disk): its name, RAID level, state, exact size, its cache policy as set and
   as it is now, and its member disks;
-- each physical disk: its slot, model, state, exact size and, during a rebuild, how far along it is;
+- each physical disk: its slot, model, state, exact size, the controller's error counts for it
+  and, during a rebuild, how far along it is;
 - the battery (BBU), where the card has one: its temperature, voltage, and whether it's too hot or
   charging.
 
@@ -49,7 +50,7 @@ has the read direction (`MFI_FRAME_DIR_READ`), and the card only fills a buffer.
 | `LD_GET_LIST` | `0x03010000` | Each array's target id, state and size |
 | `CFG_READ` | `0x04010000` | The configuration: each array's name, RAID level, state, cache policy, spans and members |
 | `PD_LIST_QUERY` | `0x02010100` | Every device the card sees: its id, enclosure, slot and type |
-| `PD_GET_INFO` | `0x02020000` | One disk: inquiry data (vendor, model), state, size, block size, slot, rebuild progress |
+| `PD_GET_INFO` | `0x02020000` | One disk: inquiry data (vendor, model), state, size, block size, slot, rebuild progress, error counts |
 | `BBU_GET_STATUS` | `0x05010000` | The battery: temperature, voltage, status (too hot, charging) |
 
 **Nothing else is ever sent.** The allowlist is fixed in `lightweight_perc/ioctl.py` (`READS`).
@@ -89,11 +90,11 @@ It's on GitHub, not PyPI. Pin it to a release tag; the tags never move.
 
 ```text
 # requirements file
-lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.1.0
+lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.2.0
 ```
 
 ```sh
-pip install --no-deps "lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.1.0"
+pip install --no-deps "lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.2.0"
 ```
 
 pip needs `git` to fetch it. Building it needs nothing else: the build backend is in the repo
@@ -125,7 +126,8 @@ else:
             print("  member", m.device_id, m.enclosure, m.slot)     # device_id None: no disk there
     for disk in perc.disks.values():
         print(disk.enclosure, disk.slot, disk.model, disk.state_name, disk.size_bytes,
-              disk.array, disk.rebuild_percent)
+              disk.array, disk.rebuild_percent,
+              disk.media_errors, disk.other_errors, disk.predictive_failures)
     if perc.battery:
         print("battery", perc.battery.temperature_celsius, "°C",
               "too hot" if perc.battery.temp_high else "", "charging" if perc.battery.charging else "")
@@ -170,6 +172,13 @@ treat a read that doesn't return as a failure.
 - **`Disk.rebuild_percent`:** while a rebuild is active, its progress rounded down to a whole
   percent, as perccli shows it; otherwise `None`.
 - **`Disk.array`:** the target id of the array it's a member of, or `None`.
+- **`Disk.media_errors`, `Disk.other_errors`, `Disk.predictive_failures`:** the controller's
+  counts for the disk (`mediaErrCount`, `otherErrCount`, `predFailCount` in `MR_PD_INFO`, at
+  0xA8, 0xAC and 0xB0), the fields perccli shows as "Media Error Count", "Other Error Count" and
+  "Predictive Failure Count"; not compared with perccli on these cards, as the rest was, since
+  perccli's per-disk read stalls the disks. The controller keeps them from when the disk was fitted. On the four cards
+  checked, no disk had a media error or a predicted failure, and 19 of the 27 had other errors,
+  8 to 35 each. Added in 0.2.0; read from the same answer as the rest, so no command is added.
 - **`Battery.temp_high`, `Battery.charging`:** the battery's firmware status bits 2 and 3.
 
 ### Testing your own code against real cards

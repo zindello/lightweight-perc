@@ -6,7 +6,8 @@ import struct
 import unittest
 
 from lightweight_perc import PercError, read_controller
-from lightweight_perc.parse import (OFF_PD_FW_STATE, OFF_PD_PROG_ACTIVE, OFF_PD_PROG_REBUILD,
+from lightweight_perc.parse import (OFF_PD_FW_STATE, OFF_PD_MEDIA_ERR, OFF_PD_OTHER_ERR,
+                                   OFF_PD_PRED_FAIL, OFF_PD_PROG_ACTIVE, OFF_PD_PROG_REBUILD,
                                    OFF_TEMPERATURE_ROC, parse_bbu_status, parse_config,
                                    parse_ctrl_info, parse_ld_list, parse_pd_info, parse_pd_list)
 from lightweight_perc.testing import CARDS, ReplayCard, answers, load
@@ -57,6 +58,20 @@ class Cards(unittest.TestCase):
                         self.assertAlmostEqual(got[key] / value, 1.0, delta=0.001, msg=key)
                     else:
                         self.assertEqual(got[key], value, msg=key)
+
+    def test_each_disks_error_counts(self):
+        """The cards' own counts on 24 November: no media errors or predicted failures anywhere;
+        other errors on the disks in no array of the R330 and the R430s, none on the T620."""
+        other = {"perc-h330-adapter": {0: 8, 1: 8, 2: 8, 3: 8},
+                 "perc-h330-mini": {0: 0, 1: 0, 2: 20, 3: 18, 4: 29, 5: 29, 6: 29, 7: 31},
+                 "perc-h730p-mini": {0: 0, 1: 0, 2: 24, 3: 28, 4: 35, 5: 35, 6: 35, 7: 33},
+                 "perc-h710p-adapter": {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 14: 0}}
+        for name, want in other.items():
+            with self.subTest(card=name):
+                c = read(answers(name), battery=False)[0]
+                self.assertEqual({d.slot: d.other_errors for d in c.disks.values()}, want)
+                self.assertEqual({d.media_errors for d in c.disks.values()}, {0})
+                self.assertEqual({d.predictive_failures for d in c.disks.values()}, {0})
 
     def test_sizes_are_the_cards_own(self):
         c, _ = read(answers("perc-h330-mini"))
@@ -156,6 +171,16 @@ class Changed(unittest.TestCase):
         c, _ = read(a)
         self.assertEqual((c.disks[1].state_name, c.disks[1].rebuild_percent), ("rebuilding", 42))
         self.assertIsNone(c.disks[0].rebuild_percent)
+
+    def test_media_errors_and_a_predicted_failure(self):
+        a = answers("perc-h330-mini")
+        struct.pack_into("<I", a["pd_info/1"], OFF_PD_MEDIA_ERR, 3)
+        struct.pack_into("<I", a["pd_info/1"], OFF_PD_OTHER_ERR, 70000)
+        struct.pack_into("<I", a["pd_info/1"], OFF_PD_PRED_FAIL, 1)
+        c, _ = read(a)
+        d = c.disks[1]
+        self.assertEqual((d.media_errors, d.other_errors, d.predictive_failures), (3, 70000, 1))
+        self.assertEqual(d.state_name, "online")        # the counts don't change the state
 
     def test_an_unknown_state_is_shown_by_number(self):
         a = answers("perc-h330-mini")

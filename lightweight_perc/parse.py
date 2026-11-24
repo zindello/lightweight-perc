@@ -24,6 +24,9 @@ OFF_TEMPERATURE_ROC = 0x7C9     # u8, °C; 0 and 0xFF mean not reported
 
 # MR_PD_INFO
 OFF_PD_INQUIRY = 0x04           # u8 inquiryData[96]: vendor @8, product @16, revision @32
+OFF_PD_MEDIA_ERR = 0xA8         # u32 mediaErrCount
+OFF_PD_OTHER_ERR = 0xAC         # u32 otherErrCount
+OFF_PD_PRED_FAIL = 0xB0         # u32 predFailCount
 OFF_PD_FW_STATE = 0xB8          # u16
 OFF_PD_COERCED = 0xF8           # u64, in the disk's blocks
 OFF_PD_ENCL = 0x100             # u16 enclDeviceId
@@ -116,6 +119,9 @@ class Disk:
     size_bytes: int             # coerced size x block size
     rebuild_percent: int | None # while a rebuild is active, rounded down
     array: int | None = None    # the target id of the array it's a member of, if any
+    media_errors: int = 0       # the controller's counts for the disk (mediaErrCount,
+    other_errors: int = 0       # otherErrCount, predFailCount): kept by the controller, since
+    predictive_failures: int = 0  # the disk was fitted
 
     @property
     def state_name(self):
@@ -238,7 +244,10 @@ def parse_pd_info(b):
                   vendor=cstr(inquiry[8:16]), model=cstr(inquiry[16:32]),
                   fw_state=struct.unpack_from("<H", b, OFF_PD_FW_STATE)[0], block_size=block,
                   size_bytes=struct.unpack_from("<Q", b, OFF_PD_COERCED)[0] * block,
-                  rebuild_percent=progress * 100 // 65535 if active else None)
+                  rebuild_percent=progress * 100 // 65535 if active else None,
+                  media_errors=struct.unpack_from("<I", b, OFF_PD_MEDIA_ERR)[0],
+                  other_errors=struct.unpack_from("<I", b, OFF_PD_OTHER_ERR)[0],
+                  predictive_failures=struct.unpack_from("<I", b, OFF_PD_PRED_FAIL)[0])
 
 
 def parse_bbu_status(b):
