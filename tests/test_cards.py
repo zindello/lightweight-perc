@@ -6,7 +6,10 @@ import struct
 import unittest
 
 from lightweight_perc import PercError, read_controller
-from lightweight_perc.parse import (OFF_PD_FW_STATE, OFF_PD_MEDIA_ERR, OFF_PD_OTHER_ERR,
+from lightweight_perc.parse import (OFF_PD_BAD_BLOCK_TABLE_FULL, OFF_PD_DDF_TYPE,
+                                   OFF_PD_DISABLED_FOR_REMOVAL, OFF_PD_PATH_BROKEN,
+                                   OFF_PD_TEMPERATURE, OFF_PD_UNUSABLE,
+                                   OFF_PD_FW_STATE, OFF_PD_MEDIA_ERR, OFF_PD_OTHER_ERR,
                                    OFF_PD_PRED_FAIL, OFF_PD_PROG_ACTIVE, OFF_PD_PROG_REBUILD,
                                    OFF_TEMPERATURE_ROC, parse_bbu_status, parse_config,
                                    parse_ctrl_info, parse_ld_list, parse_pd_info, parse_pd_list)
@@ -72,6 +75,21 @@ class Cards(unittest.TestCase):
                 self.assertEqual({d.slot: d.other_errors for d in c.disks.values()}, want)
                 self.assertEqual({d.media_errors for d in c.disks.values()}, {0})
                 self.assertEqual({d.predictive_failures for d in c.disks.values()}, {0})
+
+    def test_each_disks_checks_and_temperature(self):
+        """As recorded on 24 November: only the T620's bay 5 foreign; nothing else set."""
+        temps = {"perc-h330-adapter": {0: 37, 1: 40, 2: 41, 3: 38},
+                 "perc-h330-mini": {0: 47, 1: 46, 2: 41, 3: 45, 4: 40, 5: 41, 6: 40, 7: 41},
+                 "perc-h730p-mini": {0: 35, 1: 35, 2: 44, 3: 49, 4: 37, 5: 41, 6: 37, 7: 35},
+                 "perc-h710p-adapter": {0: 28, 1: 28, 2: 28, 3: 30, 4: 30, 5: 31, 14: 37}}
+        for name, want in temps.items():
+            with self.subTest(card=name):
+                c = read(answers(name), battery=False)[0]
+                self.assertEqual({d.slot: d.temperature_celsius for d in c.disks.values()}, want)
+                foreign = {d.slot for d in c.disks.values() if d.foreign}
+                self.assertEqual(foreign, {5} if name == "perc-h710p-adapter" else set())
+                for d in c.disks.values():
+                    self.assertFalse(d.bad_block_table_full or d.path_broken or d.unusable or d.disabled_for_removal)
 
     def test_sizes_are_the_cards_own(self):
         c, _ = read(answers("perc-h330-mini"))
@@ -181,6 +199,31 @@ class Changed(unittest.TestCase):
         d = c.disks[1]
         self.assertEqual((d.media_errors, d.other_errors, d.predictive_failures), (3, 70000, 1))
         self.assertEqual(d.state_name, "online")        # the counts don't change the state
+
+    def test_each_check_set(self):
+        for off, value, field in ((OFF_PD_BAD_BLOCK_TABLE_FULL, 1, "bad_block_table_full"),
+                                  (OFF_PD_PATH_BROKEN, 0x01, "path_broken"),
+                                  (OFF_PD_UNUSABLE, 1, "unusable"),
+                                  (OFF_PD_DISABLED_FOR_REMOVAL, 1, "disabled_for_removal")):
+            with self.subTest(field=field):
+                a = answers("perc-h330-mini")
+                a["pd_info/1"][off] |= value
+                c, _ = read(a)
+                self.assertTrue(getattr(c.disks[1], field))
+                self.assertFalse(getattr(c.disks[0], field))
+        a = answers("perc-h330-mini")
+        struct.pack_into("<H", a["pd_info/1"], OFF_PD_DDF_TYPE, struct.unpack_from("<H", a["pd_info/1"], OFF_PD_DDF_TYPE)[0] | 0x10)
+        a["pd_info/1"][OFF_PD_PATH_BROKEN] = 0x80                  # widePortCapable alone: not broken
+        c, _ = read(a)
+        self.assertTrue(c.disks[1].foreign)
+        self.assertFalse(c.disks[1].path_broken)
+
+    def test_a_disk_temperature_of_0_or_255_is_no_reading(self):
+        for raw in (0, 0xFF):
+            a = answers("perc-h330-mini")
+            a["pd_info/1"][OFF_PD_TEMPERATURE] = raw
+            c, _ = read(a)
+            self.assertIsNone(c.disks[1].temperature_celsius)
 
     def test_an_unknown_state_is_shown_by_number(self):
         a = answers("perc-h330-mini")
