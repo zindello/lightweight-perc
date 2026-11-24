@@ -1,0 +1,45 @@
+name: ci
+
+# The tests, on every pull request and on main: on GitHub's own runners, never self-hosted ones
+# (this repo is public). They replay each card's recorded answers (lightweight_perc/fixtures/),
+# so CI never touches a card and sends no ioctl. Then the package is built with its own backend
+# and installed from the wheel, outside the source tree, as a user's pip would.
+#
+# Every action pinned by commit; the Python versions are the oldest this supports and the newest.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python: ["3.11.18", "3.15.2"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Test
+        run: python -m unittest discover -s tests -v
+
+      - name: Build and install
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps --no-index .
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/python" -c "
+          import importlib.metadata as m, lightweight_perc as p, lightweight_perc.testing as t
+          assert m.version('lightweight-perc') == p.__version__
+          assert all(p.read_controller(t.ReplayCard(t.answers(c))).model for c in t.CARDS)
+          print(p.__file__)"
