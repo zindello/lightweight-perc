@@ -6,7 +6,7 @@ from .ioctl import (NODE, READS, Card, PercError, ReadOnlyViolation, ensure_mega
 from .parse import (Array, BatteryStatus, Disk, Member, array_state_name, disk_state_name)
 from .read import Controller, read_controller
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = ["NODE", "READS", "Array", "BatteryStatus", "Card", "Controller", "Disk", "Member",
            "PercError", "ReadOnlyViolation", "array_state_name", "disk_state_name",

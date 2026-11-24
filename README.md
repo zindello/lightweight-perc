@@ -8,8 +8,8 @@ It gives you:
 - the controller's model and its chip (ROC) temperature;
 - each array (virtual disk): its name, RAID level, state, exact size, its cache policy as set and
   as it is now, and its member disks;
-- each physical disk: its slot, model, state, exact size, the controller's error counts for it
-  and, during a rebuild, how far along it is;
+- each physical disk: its slot, model, state, exact size, the controller's error counts and
+  checks for it, its temperature and, during a rebuild, how far along it is;
 - the battery (BBU), where the card has one: its temperature, voltage, and whether it's too hot or
   charging.
 
@@ -50,7 +50,7 @@ has the read direction (`MFI_FRAME_DIR_READ`), and the card only fills a buffer.
 | `LD_GET_LIST` | `0x03010000` | Each array's target id, state and size |
 | `CFG_READ` | `0x04010000` | The configuration: each array's name, RAID level, state, cache policy, spans and members |
 | `PD_LIST_QUERY` | `0x02010100` | Every device the card sees: its id, enclosure, slot and type |
-| `PD_GET_INFO` | `0x02020000` | One disk: inquiry data (vendor, model), state, size, block size, slot, rebuild progress, error counts |
+| `PD_GET_INFO` | `0x02020000` | One disk: inquiry data (vendor, model), state, size, block size, slot, rebuild progress, error counts, checks, temperature |
 | `BBU_GET_STATUS` | `0x05010000` | The battery: temperature, voltage, status (too hot, charging) |
 
 **Nothing else is ever sent.** The allowlist is fixed in `lightweight_perc/ioctl.py` (`READS`).
@@ -90,11 +90,11 @@ It's on GitHub, not PyPI. Pin it to a release tag; the tags never move.
 
 ```text
 # requirements file
-lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.2.0
+lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.3.0
 ```
 
 ```sh
-pip install --no-deps "lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.2.0"
+pip install --no-deps "lightweight-perc @ git+https://github.com/zindello/lightweight-perc@v0.3.0"
 ```
 
 pip needs `git` to fetch it. Building it needs nothing else: the build backend is in the repo
@@ -127,7 +127,9 @@ else:
     for disk in perc.disks.values():
         print(disk.enclosure, disk.slot, disk.model, disk.state_name, disk.size_bytes,
               disk.array, disk.rebuild_percent,
-              disk.media_errors, disk.other_errors, disk.predictive_failures)
+              disk.media_errors, disk.other_errors, disk.predictive_failures,
+              disk.foreign, disk.bad_block_table_full, disk.path_broken, disk.unusable,
+              disk.disabled_for_removal, disk.temperature_celsius)
     if perc.battery:
         print("battery", perc.battery.temperature_celsius, "°C",
               "too hot" if perc.battery.temp_high else "", "charging" if perc.battery.charging else "")
@@ -179,6 +181,17 @@ treat a read that doesn't return as a failure.
   perccli's per-disk read stalls the disks. The controller keeps them from when the disk was fitted. On the four cards
   checked, no disk had a media error or a predicted failure, and 19 of the 27 had other errors,
   8 to 35 each. Added in 0.2.0; read from the same answer as the rest, so no command is added.
+- **`Disk.foreign`, `bad_block_table_full`, `path_broken`, `unusable`, `disabled_for_removal`:**
+  `MR_PD_INFO`'s `state.ddf.pdType.isForeign` (bit 4 at 0xBC: a configuration on the disk the
+  controller hasn't imported), `badBlockTableFull` (0x124: no room left to remap bad blocks),
+  `pathInfo.isPathBroken` (the low 4 bits at 0xC1: a SAS path to it is down),
+  `unusableInCurrentConfig` (0x125) and `disabledForRemoval` (0xBA: prepared for removal).
+- **`Disk.temperature_celsius`:** the disk's own temperature (`temperature`, at
+  0x192); `None` when the card gives 0 or 255.
+- On the four cards checked (24 November 2026), only the T620's bay 5 was foreign, nothing else
+  was set, and the disks read 28 to 49 °C. Added in 0.3.0, from the same answer as the rest. The
+  offsets follow Linux v6.12's header, and `userDataBlockSize`, which this already read at 0x194,
+  sits where the same count puts it.
 - **`Battery.temp_high`, `Battery.charging`:** the battery's firmware status bits 2 and 3.
 
 ### Testing your own code against real cards

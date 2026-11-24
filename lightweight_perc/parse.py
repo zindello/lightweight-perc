@@ -28,11 +28,17 @@ OFF_PD_MEDIA_ERR = 0xA8         # u32 mediaErrCount
 OFF_PD_OTHER_ERR = 0xAC         # u32 otherErrCount
 OFF_PD_PRED_FAIL = 0xB0         # u32 predFailCount
 OFF_PD_FW_STATE = 0xB8          # u16
+OFF_PD_DISABLED_FOR_REMOVAL = 0xBA  # u8
+OFF_PD_DDF_TYPE = 0xBC          # u16 MR_PD_DDF_TYPE.ddf.pdType; bit 4 isForeign
+OFF_PD_PATH_BROKEN = 0xC1       # u8 pathInfo: isPathBroken, the low 4 bits
 OFF_PD_COERCED = 0xF8           # u64, in the disk's blocks
 OFF_PD_ENCL = 0x100             # u16 enclDeviceId
 OFF_PD_SLOT = 0x103             # u8 slotNumber
 OFF_PD_PROG_ACTIVE = 0x104      # MR_PD_PROGRESS: u32 active, bit 0 rebuild
 OFF_PD_PROG_REBUILD = 0x108     # u16 progress, 0-65535
+OFF_PD_BAD_BLOCK_TABLE_FULL = 0x124  # u8, after MR_PD_PROGRESS (32 bytes)
+OFF_PD_UNUSABLE = 0x125         # u8 unusableInCurrentConfig
+OFF_PD_TEMPERATURE = 0x192      # u8, the disk's own °C; 0 and 0xFF mean not reported
 OFF_PD_BLOCK_SIZE = 0x194       # u16 userDataBlockSize (some cards leave it 0: 512)
 
 NO_DEVICE = 0xFFFF              # mfi_array: "0xffff == missing drive"
@@ -122,6 +128,12 @@ class Disk:
     media_errors: int = 0       # the controller's counts for the disk (mediaErrCount,
     other_errors: int = 0       # otherErrCount, predFailCount): kept by the controller, since
     predictive_failures: int = 0  # the disk was fitted
+    foreign: bool = False       # it carries a configuration the controller hasn't imported
+    bad_block_table_full: bool = False   # no room left to remap bad blocks
+    path_broken: bool = False   # a SAS path to it is down (pathInfo.isPathBroken)
+    unusable: bool = False      # unusable in the current configuration
+    disabled_for_removal: bool = False   # prepared for removal
+    temperature_celsius: int | None = None   # the disk's own; None when not reported
 
     @property
     def state_name(self):
@@ -247,7 +259,13 @@ def parse_pd_info(b):
                   rebuild_percent=progress * 100 // 65535 if active else None,
                   media_errors=struct.unpack_from("<I", b, OFF_PD_MEDIA_ERR)[0],
                   other_errors=struct.unpack_from("<I", b, OFF_PD_OTHER_ERR)[0],
-                  predictive_failures=struct.unpack_from("<I", b, OFF_PD_PRED_FAIL)[0])
+                  predictive_failures=struct.unpack_from("<I", b, OFF_PD_PRED_FAIL)[0],
+                  foreign=bool(struct.unpack_from("<H", b, OFF_PD_DDF_TYPE)[0] & 0x10),
+                  bad_block_table_full=bool(b[OFF_PD_BAD_BLOCK_TABLE_FULL]),
+                  path_broken=bool(b[OFF_PD_PATH_BROKEN] & 0x0F),
+                  unusable=bool(b[OFF_PD_UNUSABLE]),
+                  disabled_for_removal=bool(b[OFF_PD_DISABLED_FOR_REMOVAL]),
+                  temperature_celsius=None if b[OFF_PD_TEMPERATURE] in (0, 0xFF) else b[OFF_PD_TEMPERATURE])
 
 
 def parse_bbu_status(b):
